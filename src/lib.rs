@@ -96,11 +96,16 @@ impl<T, RNG: RngCore> TreapList<T, RNG> {
         height
     }
 
-    fn nth(&self, mut n: usize) -> Option<TreapKey> {
-        if n > self.len() {
+    pub fn nth(&self, n: usize) -> Option<TreapKey> {
+        self.nth_in_subtree(self.root, n)
+    }
+
+    fn nth_in_subtree(&self, root: TreapKey, mut n: usize) -> Option<TreapKey> {
+        let count = self.nodes.get(root)?.count + 1;
+        if n >= count {
             return None;
         }
-        let mut cur = self.root;
+        let mut cur = root;
         loop {
             let node = self.nodes.get(cur)?;
             let left_count = match self.nodes.get(node.left) {
@@ -209,12 +214,51 @@ impl<T, RNG: RngCore> TreapList<T, RNG> {
         }
     }
 
+    fn split_iter(&mut self, node: TreapKey, nth: usize) -> (TreapKey, TreapKey) {
+        let mut prev = match self.nth_in_subtree(node, nth) {
+            Some(c) => c,
+            _ => return (TreapKey::null(), TreapKey::null()),
+        };
+        let mut left = self.nodes[prev].left;
+        let mut right = prev;
+        self.nodes[prev].left = TreapKey::null();
+        if let Some(node) = self.nodes.get_mut(left) {
+            node.parent = TreapKey::null();
+        }
+        self.update(prev);
+        let mut cur = self.nodes[prev].parent;
+        loop {
+            if cur == node {
+                break;
+            }
+            let (cur_left, cur_right, parent) = {
+                let node = &self.nodes[cur];
+                (node.left, node.right, node.parent)
+            };
+            if cur_right == prev {
+                self.nodes[cur].right = left;
+                left = cur;
+            } else if cur_left == prev {
+                self.nodes[cur].left = right;
+                right = cur;
+            }
+            self.update(cur);
+            prev = cur;
+            cur = parent;
+        }
+
+        (left, right)
+    }
+
     fn split(&mut self, node: TreapKey, nth: usize) -> (TreapKey, TreapKey) {
         let (left, right) = match self.nodes.get(node) {
             Some(node) => (node.left, node.right),
             _ => return (TreapKey::null(), TreapKey::null()),
         };
-        let left_count = self.count(left);
+        let left_count = match self.nodes.get(left) {
+            Some(node) => node.count + 1,
+            _ => 0,
+        };
         if nth <= left_count {
             let (ll, lr) = self.split(left, nth);
             self.nodes[node].left = lr;
@@ -437,29 +481,96 @@ mod tests {
     }
 
     #[test]
-    fn rearrange_2() {
-        let ints = [1i64, 2, -3, 3, -2, 0, 4];
+    fn split() {
+        let ints = [(1i64, 78), (2, 89), (-3, 99)];
         let mut list = TreapList::<i64>::new();
         let keys = ints
             .iter()
             .copied()
-            .map(|int| list.push(int))
+            .map(|(int, prio)| {
+                let node = TreapNode::new(int, prio);
+                list.push_node(node)
+            })
+            .collect::<Vec<_>>();
+        println!("{:#?}", list);
+        assert_eq!(list.nth(1), Some(keys[1]));
+        let (left, right) = list.split_iter(list.root, 1);
+        assert_eq!(
+            left, keys[0],
+            "expected left: {:?}, got: {:?}",
+            keys[0], left
+        );
+        assert_eq!(
+            right, keys[1],
+            "expected right: {:?}, got: {:?}",
+            keys[1], right
+        );
+    }
+
+    #[test]
+    fn split_2() {
+        let ints = [
+            (1i64, 78),
+            (2, 89),
+            (-3, 99),
+            (3, 55),
+            (-2, 66),
+            (0, 77),
+            (4, 88),
+        ];
+        let mut list = TreapList::<i64>::new();
+        let keys = ints
+            .iter()
+            .copied()
+            .map(|(int, prio)| {
+                let node = TreapNode::new(int, prio);
+                list.push_node(node)
+            })
             .collect::<Vec<_>>();
         for n in list.iter().copied() {
             println!("{}", n);
         }
-        println!("before remove {:#?}", list);
         list.remove(0);
-        for n in list.iter().copied() {
-            println!("{}", n);
-        }
-        println!("after remove {:#?}", list);
+        let (left, right) = list.split(list.root, 1);
+        assert_eq!(
+            left, keys[1],
+            "expected from split: {:?}, got {:?}",
+            keys[1], left
+        );
+        assert_eq!(
+            right, keys[2],
+            "expected from split: {:?}, got {:?}",
+            keys[2], right
+        );
+    }
+
+    #[test]
+    fn rearrange_2() {
+        //         -3
+        //      2      4
+        //   1       0
+        //         -2
+        //        3
+        // remove first item (1), reinsert at position 1, yielding...
+        //         -3
+        //      1      4
+        //   2       0
+        //         -2
+        //        3
+        let ints = [
+            (1i64, 78),
+            (2, 89),
+            (-3, 99),
+            (3, 55),
+            (-2, 66),
+            (0, 77),
+            (4, 88),
+        ];
+        let mut list = TreapList::<i64>::new();
+        list.remove(0);
         assert!(list.iter().copied().eq([2, -3, 3, -2, 0, 4,]));
-        list.insert(ints[0], 1);
-        for n in list.iter().copied() {
-            println!("{}", n);
-        }
-        println!("after insert {:#?}", list);
+        let node = TreapNode::new(ints[0].0, 70);
+        list.insert_node(node, 1);
         assert!(list.iter().copied().eq([2, 1, -3, 3, -2, 0, 4,]));
     }
 }
