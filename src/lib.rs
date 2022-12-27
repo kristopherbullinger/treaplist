@@ -399,4 +399,67 @@ mod tests {
             );
         }
     }
+
+    #[test]
+    fn rearrange() {
+        let mut list = TreapList::<u32>::new();
+        let mut keys = vec![];
+        let nodes = [(0, 1), (1, 0), (2, 2), (3, 4), (4, 3)];
+        for (val, prio) in nodes.iter().copied() {
+            let node = TreapNode::new(val, prio);
+            let key = list.push_node(node);
+            keys.push(key);
+        }
+        list.remove(2);
+        let sixty6 = list.push(66);
+        println!("{:#?}", list);
+        assert_eq!(list.position(sixty6), Some(list.len() - 1));
+        for (i, key) in keys.iter().copied().enumerate() {
+            let observed = list.position(key);
+            if i == 2 {
+                continue;
+            } else if i > 2 {
+                let expected = Some(i - 1);
+                assert_eq!(
+                    observed, expected,
+                    "expected: {:?}, got {:?}",
+                    expected, observed
+                );
+            } else {
+                let expected = Some(i);
+                assert_eq!(
+                    observed, expected,
+                    "expected: {:?}, got {:?}",
+                    expected, observed
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn rearrange_2() {
+        let ints = [1i64, 2, -3, 3, -2, 0, 4];
+        let mut list = TreapList::<i64>::new();
+        let keys = ints
+            .iter()
+            .copied()
+            .map(|int| list.push(int))
+            .collect::<Vec<_>>();
+        for n in list.iter().copied() {
+            println!("{}", n);
+        }
+        println!("before remove {:#?}", list);
+        list.remove(0);
+        for n in list.iter().copied() {
+            println!("{}", n);
+        }
+        println!("after remove {:#?}", list);
+        assert!(list.iter().copied().eq([2, -3, 3, -2, 0, 4,]));
+        list.insert(ints[0], 1);
+        for n in list.iter().copied() {
+            println!("{}", n);
+        }
+        println!("after insert {:#?}", list);
+        assert!(list.iter().copied().eq([2, 1, -3, 3, -2, 0, 4,]));
+    }
 }
