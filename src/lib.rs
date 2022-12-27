@@ -250,8 +250,8 @@ impl<T, RNG: RngCore> TreapList<T, RNG> {
         (left, right)
     }
 
-    fn split(&mut self, node: TreapKey, nth: usize) -> (TreapKey, TreapKey) {
-        let (left, right) = match self.nodes.get(node) {
+    fn split(&mut self, key: TreapKey, nth: usize) -> (TreapKey, TreapKey) {
+        let (left, right) = match self.nodes.get(key) {
             Some(node) => (node.left, node.right),
             _ => return (TreapKey::null(), TreapKey::null()),
         };
@@ -261,14 +261,14 @@ impl<T, RNG: RngCore> TreapList<T, RNG> {
         };
         if nth <= left_count {
             let (ll, lr) = self.split(left, nth);
-            self.nodes[node].left = lr;
-            self.update(node);
-            (ll, node)
+            self.nodes[key].left = lr;
+            self.update(key);
+            (ll, key)
         } else {
-            let (rl, rr) = self.split(right, nth - left_count);
-            self.nodes[node].right = rl;
-            self.update(node);
-            (node, rr)
+            let (rl, rr) = self.split(right, nth - left_count - 1);
+            self.nodes[key].right = rl;
+            self.update(key);
+            (key, rr)
         }
     }
 
@@ -304,8 +304,12 @@ impl<T, RNG: RngCore> TreapList<T, RNG> {
     }
 
     pub fn iter(&self) -> Iter<'_, T> {
+        self.iter_from(self.root)
+    }
+
+    fn iter_from(&self, key: TreapKey) -> Iter<'_, T> {
         let mut stack = VecDeque::new();
-        stack.push_front(Item::Node(self.root));
+        stack.push_front(Item::Node(key));
         Iter {
             nodes: &self.nodes,
             stack,
@@ -318,11 +322,13 @@ enum Item<T> {
     Node(TreapKey),
     Item(T),
 }
+
 pub struct Iter<'a, T> {
     stack: VecDeque<Item<&'a T>>,
     nodes: &'a SlotMap<TreapKey, TreapNode<T>>,
 }
 
+//depth first search
 impl<'a, T: std::fmt::Debug> Iterator for Iter<'a, T> {
     type Item = &'a T;
     fn next(&mut self) -> Option<Self::Item> {
@@ -567,10 +573,71 @@ mod tests {
             (4, 88),
         ];
         let mut list = TreapList::<i64>::new();
+        for (n, prio) in ints {
+            let node = TreapNode::new(n, prio);
+            list.push_node(node);
+        }
         list.remove(0);
         assert!(list.iter().copied().eq([2, -3, 3, -2, 0, 4,]));
         let node = TreapNode::new(ints[0].0, 70);
         list.insert_node(node, 1);
         assert!(list.iter().copied().eq([2, 1, -3, 3, -2, 0, 4,]));
     }
+
+    // #[test]
+    // fn rearrange_3() {
+    //     let ints = [
+    //         (1i64, 78),
+    //         (2, 89),
+    //         (-3, 99),
+    //         (3, 55),
+    //         (-2, 66),
+    //         (0, 77),
+    //         (4, 88),
+    //     ];
+    //     let mut list = TreapList::<i64>::new();
+    //     let mut keys = vec![];
+    //     for (n, prio) in ints {
+    //         let node = TreapNode::new(n, prio);
+    //         keys.push(list.push_node(node));
+    //     }
+    //     let states = [
+    //         [2, 1, -3, 3, -2, 0, 4i64],
+    //         [1, -3, 2, 3, -2, 0, 4],
+    //         [1, 2, 3, -2, -3, 0, 4],
+    //         [1, 2, -2, -3, 0, 3, 4],
+    //         [1, 2, -3, 0, 3, 4, -2],
+    //         [1, 2, -3, 0, 3, 4, -2],
+    //         [1, 2, -3, 4, 0, 3, -2],
+    //     ];
+    //     let len = keys.len() as i64;
+    //     for (i, (key, state)) in keys.iter().copied().zip(states).enumerate() {
+    //         println!("i {}", i);
+    //         if i == 4 {
+    //             println!("{:#?}", list);
+    //         }
+    //         let position = list.position(key).unwrap();
+    //         println!("position {}", position);
+    //         let diff = list.remove_node(key).unwrap();
+    //         println!("diff {}", diff);
+    //         // println!("{:#?}", list);
+    //         let new_position = (position as i64) + diff;
+    //         let new_position = new_position.rem_euclid(len.saturating_sub(1)) as usize;
+    //         println!("new position {}", new_position);
+    //         let node = TreapNode::new(diff, ints[i].1);
+    //         list.insert_node(node, new_position);
+    //         for n in list.iter().copied() {
+    //             println!("{}", n);
+    //         }
+    //         // println!("{:#?}", list);
+    //         let eq = list.iter().copied().eq(state.iter().copied());
+    //         if !eq {
+    //             println!("{:#?}", list);
+    //         }
+    //         println!();
+    //         println!();
+    //         println!();
+    //         assert!(list.iter().copied().eq(state.iter().copied()));
+    //     }
+    // }
 }
