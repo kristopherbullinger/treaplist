@@ -1,7 +1,7 @@
 use rand::{rngs::ThreadRng, RngCore};
 use slotmap::{Key as _, SlotMap};
 use std::cmp::Ordering;
-use std::ops::Add;
+use std::collections::VecDeque;
 slotmap::new_key_type! {
     pub struct TreapKey;
 }
@@ -59,6 +59,25 @@ impl<T, RNG: RngCore> TreapList<T, RNG> {
         self.root = TreapKey::null();
     }
 
+    pub fn position(&self, key: TreapKey) -> Option<usize> {
+        let node = self.nodes.get(key)?;
+        let mut position = match self.nodes.get(node.left) {
+            Some(leftnode) => leftnode.count + 1,
+            _ => 0,
+        };
+        let mut cur = node.parent;
+        let mut prev = key;
+        while let Some(node) = self.nodes.get(cur) {
+            if node.right == prev {
+                position += self.count(node.left);
+                position += 1;
+            }
+            prev = cur;
+            cur = node.parent;
+        }
+        Some(position)
+    }
+
     fn nth(&self, mut n: usize) -> Option<TreapKey> {
         if n > self.len() {
             return None;
@@ -90,6 +109,14 @@ impl<T, RNG: RngCore> TreapList<T, RNG> {
 
     pub fn get_mut(&mut self, n: usize) -> Option<&mut T> {
         self.nth(n).map(|key| &mut self.nodes[key].value)
+    }
+
+    pub fn get_node(&self, key: TreapKey) -> Option<&T> {
+        self.nodes.get(key).map(|node| &node.value)
+    }
+
+    pub fn get_node_mut(&mut self, key: TreapKey) -> Option<&mut T> {
+        self.nodes.get_mut(key).map(|node| &mut node.value)
     }
 
     fn insert_node(&mut self, node: TreapNode<T>, pos: usize) -> Option<TreapKey> {
@@ -181,10 +208,10 @@ impl<T, RNG: RngCore> TreapList<T, RNG> {
 
     pub fn remove(&mut self, n: usize) -> Option<T> {
         let key = self.nth(n)?;
-        self.remove_node(key).map(|node| node.value)
+        self.remove_node(key)
     }
 
-    fn remove_node(&mut self, key: TreapKey) -> Option<TreapNode<T>> {
+    pub fn remove_node(&mut self, key: TreapKey) -> Option<T> {
         let node = self.nodes.remove(key)?;
 
         //update parent nodes' counts
@@ -207,9 +234,78 @@ impl<T, RNG: RngCore> TreapList<T, RNG> {
             self.root = merged;
         }
 
-        Some(node)
+        Some(node.value)
+    }
+
+    pub fn iter(&self) -> Iter<'_, T> {
+        let mut stack = VecDeque::new();
+        stack.push_front(Item::Node(self.root));
+        Iter {
+            nodes: &self.nodes,
+            stack,
+        }
     }
 }
+
+#[derive(Debug)]
+enum Item<T> {
+    Node(TreapKey),
+    Item(T),
+}
+pub struct Iter<'a, T> {
+    stack: VecDeque<Item<&'a T>>,
+    nodes: &'a SlotMap<TreapKey, TreapNode<T>>,
+}
+
+impl<'a, T: std::fmt::Debug> Iterator for Iter<'a, T> {
+    type Item = &'a T;
+    fn next(&mut self) -> Option<Self::Item> {
+        loop {
+            let item = self.stack.pop_back()?;
+            match item {
+                Item::Node(key) => {
+                    let node = match self.nodes.get(key) {
+                        Some(node) => node,
+                        None => {
+                            if self.stack.is_empty() {
+                                return None;
+                            } else {
+                                continue;
+                            }
+                        }
+                    };
+                    self.stack.push_back(Item::Node(node.right));
+                    self.stack.push_back(Item::Item(&node.value));
+                    self.stack.push_back(Item::Node(node.left));
+                }
+                Item::Item(val) => return Some(val),
+            }
+        }
+    }
+}
+
+// pub struct IterMut<'a, T> {
+//     stack: VecDeque<Item<&'a mut T>>,
+//     nodes: &'a mut SlotMap<TreapKey, TreapNode<T>>,
+// }
+
+// impl<'a, T> Iterator for IterMut<'a, T> {
+//     type Item = &'a mut T;
+//     fn next(&mut self) -> Option<Self::Item> {
+//         let stack_item = self.stack.pop_front()?;
+//         loop {
+//             match stack_item {
+//                 Item::Node(key) => {
+//                     let node = self.nodes.get_mut(key)?;
+//                     self.stack.push_back(Item::Node(node.right));
+//                     self.stack.push_back(Item::Item(&mut node.value));
+//                     self.stack.push_back(Item::Node(node.left));
+//                 }
+//                 Item::Item(val) => return Some(val),
+//             }
+//         }
+//     }
+// }
 
 #[cfg(test)]
 mod tests {
@@ -240,6 +336,20 @@ mod tests {
         }
         for _ in 0..100 {
             tpl.pop();
+        }
+    }
+
+    #[test]
+    fn positions() {
+        let mut list = TreapList::<u32>::new();
+        let mut keys = vec![];
+        for n in 0..5 {
+            let key = list.push(n);
+            keys.push(key);
+        }
+        println!("{:#?}", list);
+        for (i, key) in keys.iter().copied().enumerate() {
+            assert_eq!(list.position(key), Some(i));
         }
     }
 }
