@@ -69,13 +69,31 @@ impl<T, RNG: RngCore> TreapList<T, RNG> {
         let mut prev = key;
         while let Some(node) = self.nodes.get(cur) {
             if node.right == prev {
-                position += self.count(node.left);
+                let left_count = match self.nodes.get(node.left) {
+                    Some(leftnode) => leftnode.count + 1,
+                    _ => 0,
+                };
+                position += left_count;
                 position += 1;
             }
             prev = cur;
             cur = node.parent;
         }
         Some(position)
+    }
+
+    fn max_height(&self) -> usize {
+        let mut height = 0;
+        let mut stack = VecDeque::new();
+        stack.push_front((self.root, 0));
+        while let Some((key, hgt)) = stack.pop_front() {
+            height = height.max(hgt);
+            if let Some(node) = self.nodes.get(key) {
+                stack.push_back((node.left, hgt + 1));
+                stack.push_back((node.right, hgt + 1));
+            }
+        }
+        height
     }
 
     fn nth(&self, mut n: usize) -> Option<TreapKey> {
@@ -139,6 +157,10 @@ impl<T, RNG: RngCore> TreapList<T, RNG> {
 
     pub fn push(&mut self, value: T) -> TreapKey {
         self.insert(value, self.len()).unwrap()
+    }
+
+    fn push_node(&mut self, node: TreapNode<T>) -> TreapKey {
+        self.insert_node(node, self.len()).unwrap()
     }
 
     pub fn pop(&mut self) -> Option<T> {
@@ -340,16 +362,41 @@ mod tests {
     }
 
     #[test]
-    fn positions() {
+    fn positions_1() {
         let mut list = TreapList::<u32>::new();
         let mut keys = vec![];
-        for n in 0..5 {
-            let key = list.push(n);
+        let nodes = [(0, 0), (1, 2), (2, 1), (3, 3), (4, 4)];
+        for (val, prio) in nodes.iter().copied() {
+            let node = TreapNode::new(val, prio);
+            let key = list.push_node(node);
             keys.push(key);
         }
         println!("{:#?}", list);
         for (i, key) in keys.iter().copied().enumerate() {
             assert_eq!(list.position(key), Some(i));
+        }
+    }
+
+    #[test]
+    fn positions_2() {
+        let mut list = TreapList::<u32>::new();
+        let mut keys = vec![];
+        let nodes = [(0, 1), (1, 0), (2, 2), (3, 4), (4, 3)];
+        for (val, prio) in nodes.iter().copied() {
+            let node = TreapNode::new(val, prio);
+            let key = list.push_node(node);
+            keys.push(key);
+        }
+        println!("{:#?}", list);
+        for (i, key) in keys.iter().copied().enumerate() {
+            println!("i {}", i);
+            let observed = list.position(key);
+            let expected = Some(i);
+            assert_eq!(
+                observed, expected,
+                "expected {:?}, got {:?}",
+                expected, observed
+            );
         }
     }
 }
