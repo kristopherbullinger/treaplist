@@ -82,6 +82,8 @@ impl<T, RNG: RngCore> TreapList<T, RNG> {
         Some(position)
     }
 
+    pub fn for_each_mut<F: FnMut(&mut T)>(&mut self, f: F) {}
+
     fn max_height(&self) -> usize {
         let mut height = 0;
         let mut stack = VecDeque::new();
@@ -194,7 +196,45 @@ impl<T, RNG: RngCore> TreapList<T, RNG> {
         self.nodes[key].count = count;
     }
 
-    fn merge(&mut self, left: TreapKey, right: TreapKey) -> TreapKey {
+    fn merge(&mut self, mut left: TreapKey, mut right: TreapKey) -> TreapKey {
+        enum Cont {
+            C1(TreapKey),
+            C2(TreapKey),
+        }
+        let mut stk = vec![];
+        loop {
+            let mut ret = if left.is_null() {
+                right
+            } else if right.is_null() {
+                left
+            } else if self.nodes[left].priority > self.nodes[right].priority {
+                stk.push(Cont::C1(left));
+                left = self.nodes[left].right;
+                continue;
+            } else {
+                stk.push(Cont::C2(right));
+                right = self.nodes[right].left;
+                continue;
+            };
+            while let Some(cont) = stk.pop() {
+                match cont {
+                    Cont::C1(key) => {
+                        self.nodes[key].right = ret;
+                        self.update(key);
+                        ret = key;
+                    }
+                    Cont::C2(key) => {
+                        self.nodes[key].left = ret;
+                        self.update(key);
+                        ret = key;
+                    }
+                }
+            }
+            return ret;
+        }
+    }
+
+    fn merge_(&mut self, left: TreapKey, right: TreapKey) -> TreapKey {
         if left.is_null() {
             return right;
         }
@@ -203,54 +243,64 @@ impl<T, RNG: RngCore> TreapList<T, RNG> {
         }
         if self.nodes[left].priority > self.nodes[right].priority {
             let lr = self.nodes[left].right;
-            self.nodes[left].right = self.merge(lr, right);
+            let ret = self.merge(lr, right);
+            self.nodes[left].right = ret;
             self.update(left);
             left
         } else {
             let rl = self.nodes[right].left;
-            self.nodes[right].left = self.merge(left, rl);
+            let ret = self.merge(left, rl);
+            self.nodes[right].left = ret;
             self.update(right);
             right
         }
     }
 
-    fn split_iter(&mut self, node: TreapKey, nth: usize) -> (TreapKey, TreapKey) {
-        let mut prev = match self.nth_in_subtree(node, nth) {
-            Some(c) => c,
-            _ => return (TreapKey::null(), TreapKey::null()),
-        };
-        let mut left = self.nodes[prev].left;
-        let mut right = prev;
-        self.nodes[prev].left = TreapKey::null();
-        if let Some(node) = self.nodes.get_mut(left) {
-            node.parent = TreapKey::null();
+    fn split(&mut self, mut key: TreapKey, mut nth: usize) -> (TreapKey, TreapKey) {
+        enum Cont {
+            C1(TreapKey),
+            C2(TreapKey),
         }
-        self.update(prev);
-        let mut cur = self.nodes[prev].parent;
+        let mut stk = vec![];
         loop {
-            if cur == node {
-                break;
-            }
-            let (cur_left, cur_right, parent) = {
-                let node = &self.nodes[cur];
-                (node.left, node.right, node.parent)
+            let (mut left, mut right) = match self.nodes.get(key) {
+                Some(node) => {
+                    let left_count = match self.nodes.get(node.left) {
+                        Some(node) => node.count + 1,
+                        _ => 0,
+                    };
+                    if nth <= left_count {
+                        stk.push(Cont::C1(key));
+                        key = node.left;
+                        continue;
+                    } else {
+                        stk.push(Cont::C2(key));
+                        key = node.right;
+                        nth -= left_count + 1;
+                        continue;
+                    }
+                }
+                _ => (TreapKey::null(), TreapKey::null()),
             };
-            if cur_right == prev {
-                self.nodes[cur].right = left;
-                left = cur;
-            } else if cur_left == prev {
-                self.nodes[cur].left = right;
-                right = cur;
+            while let Some(cont) = stk.pop() {
+                match cont {
+                    Cont::C1(key) => {
+                        self.nodes[key].left = right;
+                        self.update(key);
+                        right = key;
+                    }
+                    Cont::C2(key) => {
+                        self.nodes[key].right = left;
+                        self.update(key);
+                        left = key;
+                    }
+                }
             }
-            self.update(cur);
-            prev = cur;
-            cur = parent;
+            return (left, right);
         }
-
-        (left, right)
     }
 
-    fn split(&mut self, key: TreapKey, nth: usize) -> (TreapKey, TreapKey) {
+    fn split_(&mut self, key: TreapKey, nth: usize) -> (TreapKey, TreapKey) {
         let (left, right) = match self.nodes.get(key) {
             Some(node) => (node.left, node.right),
             _ => return (TreapKey::null(), TreapKey::null()),
@@ -355,29 +405,6 @@ impl<'a, T: std::fmt::Debug> Iterator for Iter<'a, T> {
         }
     }
 }
-
-// pub struct IterMut<'a, T> {
-//     stack: VecDeque<Item<&'a mut T>>,
-//     nodes: &'a mut SlotMap<TreapKey, TreapNode<T>>,
-// }
-
-// impl<'a, T> Iterator for IterMut<'a, T> {
-//     type Item = &'a mut T;
-//     fn next(&mut self) -> Option<Self::Item> {
-//         let stack_item = self.stack.pop_front()?;
-//         loop {
-//             match stack_item {
-//                 Item::Node(key) => {
-//                     let node = self.nodes.get_mut(key)?;
-//                     self.stack.push_back(Item::Node(node.right));
-//                     self.stack.push_back(Item::Item(&mut node.value));
-//                     self.stack.push_back(Item::Node(node.left));
-//                 }
-//                 Item::Item(val) => return Some(val),
-//             }
-//         }
-//     }
-// }
 
 #[cfg(test)]
 mod tests {
@@ -500,7 +527,7 @@ mod tests {
             .collect::<Vec<_>>();
         println!("{:#?}", list);
         assert_eq!(list.nth(1), Some(keys[1]));
-        let (left, right) = list.split_iter(list.root, 1);
+        let (left, right) = list.split(list.root, 1);
         assert_eq!(
             left, keys[0],
             "expected left: {:?}, got: {:?}",
